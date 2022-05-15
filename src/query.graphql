@@ -1,0 +1,49 @@
+fragment RepoIssues on Repository {
+    __typename
+    issues(first: 100, states: OPEN) {
+        nodes {
+            __typename
+            title
+            createdAt
+            url
+            author {
+                __typename
+                login
+            }
+        }
+    }
+    isArchived
+    name
+    url
+    owner {
+        __typename
+        login
+    }
+}
+
+query UserIssuesQuery {
+    viewer {
+        __typename
+        repositories(first: 100) {
+            nodes {
+                ...RepoIssues
+            }
+        }
+    }
+}
+
+query OrgaIssuesQuery {
+    viewer {
+        __typename
+        organizations(first: 10) {
+            nodes {
+                __typename
+                repositories(first: 100) {
+                    nodes {
+                        ...RepoIssues
+                    }
+                }
+            }
+        }
+    }
+}
