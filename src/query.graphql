@@ -1,6 +1,6 @@
 fragment RepoIssues on Repository {
     __typename
-    issues(first: 100, states: OPEN) {
+    issues(first: 50, states: OPEN) {
         nodes {
             __typename
             title
@@ -10,6 +10,7 @@ fragment RepoIssues on Repository {
                 __typename
                 login
             }
+            viewerSubscription
         }
     }
     isArchived
@@ -38,12 +39,77 @@ query OrgaIssuesQuery {
         organizations(first: 10) {
             nodes {
                 __typename
-                repositories(first: 100) {
+                repositories(first: 20) {
                     nodes {
                         ...RepoIssues
                     }
                 }
             }
         }
+    }
+}
+
+fragment RepoIdentification on Repository {
+    __typename
+    isArchived
+    name
+    owner {
+        __typename
+        login
+    }
+}
+
+query UserReposQuery {
+    viewer {
+        __typename
+        repositories(first: 100) {
+            nodes {
+                ...RepoIdentification
+            }
+        }
+    }
+}
+
+query ViewerOrganizationsQuery {
+    viewer {
+        __typename
+        organizations(first: 100) {
+            nodes {
+                __typename
+                login
+            }
+        }
+    }
+}
+
+query OrganizationReposQuery($login: String!) {
+    organization(login: $login) {
+        __typename
+        repositories(first: 100) {
+            nodes {
+                ...RepoIdentification
+            }
+        }
+    }
+}
+
+query RepoQuery($name: String!, $owner: String!) {
+    repository(name: $name, owner: $owner, followRenames: false) {
+        __typename
+        issues(first: 100, states: OPEN) {
+            nodes {
+                __typename
+                title
+                createdAt
+                url
+                author {
+                    __typename
+                    login
+                }
+                viewerSubscription
+            }
+        }
+        name
+        url
     }
 }

@@ -66,6 +66,36 @@ async fn query_issues<Req, Res>(
     Ok(f(username, body.data.unwrap()))
 }
 
+impl PartialEq for user_issues_query::SubscriptionState {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (&user_issues_query::SubscriptionState::SUBSCRIBED, &user_issues_query::SubscriptionState::SUBSCRIBED) => true,
+            (&user_issues_query::SubscriptionState::UNSUBSCRIBED, &user_issues_query::SubscriptionState::UNSUBSCRIBED) => true,
+            (&user_issues_query::SubscriptionState::IGNORED, &user_issues_query::SubscriptionState::IGNORED) => true,
+            _ => false,
+        }
+    }
+
+    fn ne(&self, other: &Self) -> bool {
+        !self.eq(other)
+    }
+}
+
+impl PartialEq for orga_issues_query::SubscriptionState {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (&orga_issues_query::SubscriptionState::SUBSCRIBED, &orga_issues_query::SubscriptionState::SUBSCRIBED) => true,
+            (&orga_issues_query::SubscriptionState::UNSUBSCRIBED, &orga_issues_query::SubscriptionState::UNSUBSCRIBED) => true,
+            (&orga_issues_query::SubscriptionState::IGNORED, &orga_issues_query::SubscriptionState::IGNORED) => true,
+            _ => false,
+        }
+    }
+
+    fn ne(&self, other: &Self) -> bool {
+        !self.eq(other)
+    }
+}
+
 fn personal_projects(username: &str, data: user_issues_query::ResponseData) -> Vec<Project> {
     data
         .viewer
@@ -78,6 +108,9 @@ fn personal_projects(username: &str, data: user_issues_query::ResponseData) -> V
         .map(|repo| {
             let issues = repo.issues.nodes.unwrap().into_iter()
                 .flatten()
+                .filter(|issue| {
+                    issue.viewer_subscription.as_ref() != Some(&user_issues_query::SubscriptionState::SUBSCRIBED)
+                })
                 .map(|issue| Issue {
                     title: issue.title,
                     created_at: issue.created_at,
@@ -115,6 +148,9 @@ fn organization_projects(username: &str, data: orga_issues_query::ResponseData) 
                 .map(|repo| {
                     let issues = repo.issues.nodes.unwrap().into_iter()
                         .flatten()
+                        .filter(|issue| {
+                            issue.viewer_subscription.as_ref() != Some(&orga_issues_query::SubscriptionState::SUBSCRIBED)
+                        })
                         .map(|issue| Issue {
                             title: issue.title,
                             created_at: issue.created_at,
