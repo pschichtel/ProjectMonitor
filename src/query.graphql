@@ -1,54 +1,3 @@
-fragment RepoIssues on Repository {
-    __typename
-    issues(first: 50, states: OPEN) {
-        nodes {
-            __typename
-            title
-            createdAt
-            url
-            author {
-                __typename
-                login
-            }
-            viewerSubscription
-        }
-    }
-    isArchived
-    name
-    url
-    owner {
-        __typename
-        login
-    }
-}
-
-query UserIssuesQuery {
-    viewer {
-        __typename
-        repositories(first: 100) {
-            nodes {
-                ...RepoIssues
-            }
-        }
-    }
-}
-
-query OrgaIssuesQuery {
-    viewer {
-        __typename
-        organizations(first: 10) {
-            nodes {
-                __typename
-                repositories(first: 20) {
-                    nodes {
-                        ...RepoIssues
-                    }
-                }
-            }
-        }
-    }
-}
-
 fragment RepoIdentification on Repository {
     __typename
     isArchived
@@ -59,57 +8,88 @@ fragment RepoIdentification on Repository {
     }
 }
 
-query UserReposQuery {
+query ViewerReposQuery($cursor: String) {
     viewer {
         __typename
-        repositories(first: 100) {
-            nodes {
-                ...RepoIdentification
+        repositories(first: 100, after: $cursor) {
+            edges {
+                __typename
+                node {
+                    ...RepoIdentification
+                }
+            }
+            pageInfo {
+                __typename
+                hasNextPage
+                endCursor
             }
         }
     }
 }
 
-query ViewerOrganizationsQuery {
+query ViewerOrganizationsQuery($cursor: String) {
     viewer {
         __typename
-        organizations(first: 100) {
-            nodes {
+        organizations(first: 100, after: $cursor) {
+            edges {
                 __typename
-                login
-            }
-        }
-    }
-}
-
-query OrganizationReposQuery($login: String!) {
-    organization(login: $login) {
-        __typename
-        repositories(first: 100) {
-            nodes {
-                ...RepoIdentification
-            }
-        }
-    }
-}
-
-query RepoQuery($name: String!, $owner: String!) {
-    repository(name: $name, owner: $owner, followRenames: false) {
-        __typename
-        issues(first: 100, states: OPEN) {
-            nodes {
-                __typename
-                title
-                createdAt
-                url
-                author {
+                node {
                     __typename
                     login
+                    viewerCanAdminister
                 }
-                viewerSubscription
+            }
+            pageInfo {
+                __typename
+                hasNextPage
+                endCursor
             }
         }
-        name
+    }
+}
+
+query OrganizationReposQuery($login: String!, $cursor: String) {
+    organization(login: $login) {
+        __typename
+        repositories(first: 100, after: $cursor) {
+            edges {
+                __typename
+                node {
+                    ...RepoIdentification
+                }
+            }
+            pageInfo {
+                __typename
+                hasNextPage
+                endCursor
+            }
+        }
+    }
+}
+
+query RepoIssuesQuery($owner: String!, $name: String!, $cursor: String) {
+    repository(name: $name, owner: $owner, followRenames: false) {
+        __typename
         url
+        issues(first: 100, after: $cursor, states: OPEN) {
+            edges {
+                node {
+                    __typename
+                    title
+                    createdAt
+                    url
+                    author {
+                        __typename
+                        login
+                    }
+                    viewerSubscription
+                }
+            }
+            pageInfo {
+                __typename
+                hasNextPage
+                endCursor
+            }
+        }
     }
 }

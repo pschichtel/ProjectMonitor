@@ -14,3 +14,4 @@ reqwest = { version = "0.11.10", features = ["json"] }
 graphql_client = "0.10.0"
 lettre = "0.9"
 lettre_email = "0.9"
+futures = { version = "0.3.21" }
