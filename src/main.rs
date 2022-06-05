@@ -61,33 +61,39 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let email_to = EmailAddress::new(std::env::var("EMAIL_TO")?)?;
 
 
-    let mut projects = github::fetch_all_projects(&github_context).await?;
+    let mut projects = github::fetch_all_projects(&github_context).await?
+        .into_iter()
+        .filter(|project| !project.tasks.is_empty())
+        .collect::<Vec<_>>();
     projects.sort_by_key(|project| {
         Reverse(project.tasks.as_slice().into_iter().map(|i| i.created_at()).max())
     });
 
-    for project in &mut projects {
-        if project.tasks.is_empty() {
-            continue;
-        }
-
-        println!("Project: {}/{} ({})", project.owner, project.name, project.url);
+    let mut email_body = String::new();
+    for project in projects {
+        email_body.push_str(format!("Project: {}/{} ({})\n", project.owner, project.name, project.url).as_str());
 
         for issue in project.tasks.as_slice() {
             match issue {
                 Task::Issue(issue) => {
-                    println!("  Issue:        {} by {} ({}) -> {}", issue.title, issue.author, issue.created_at, issue.url);
+                    email_body.push_str(format!("  Issue:        {} by {} ({}) -> {}\n", issue.title, issue.author, issue.created_at, issue.url).as_str());
                 }
                 Task::Pr(pull_request) => {
-                    println!("  Pull Request: {} by {} ({}) -> {}", pull_request.title, pull_request.author, pull_request.created_at, pull_request.url);
+                    email_body.push_str(format!("  Pull Request: {} by {} ({}) -> {}\n", pull_request.title, pull_request.author, pull_request.created_at, pull_request.url).as_str());
                 }
             }
         }
     }
 
+    println!("{}", email_body);
 
-
-    send_email(&mut email_context, email_from, email_to)?;
+    send_email(
+        &mut email_context,
+        email_from,
+        email_to,
+        "GitHub: New Unsubscribed Tasks",
+        email_body.as_str(),
+    );
 
     Ok(())
 }

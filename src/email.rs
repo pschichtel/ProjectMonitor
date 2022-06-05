@@ -3,7 +3,6 @@ extern crate lettre_email;
 
 use lettre::{ClientSecurity, ClientTlsParameters, EmailAddress, Envelope, SendableEmail, SmtpClient, SmtpTransport, Transport};
 use lettre::smtp::authentication::Credentials;
-use lettre::smtp::error::SmtpResult;
 use native_tls::TlsConnector;
 use uuid::Uuid;
 
@@ -46,17 +45,31 @@ pub fn create_email_client(host: &str, port: u16, username: Option<String>, pass
     }
 }
 
-pub fn send_email(context: &mut EmailContext, from: EmailAddress, to: EmailAddress) -> SmtpResult {
+pub fn send_email(
+    context: &mut EmailContext,
+    from: EmailAddress,
+    to: EmailAddress,
+    subject: &str,
+    body: &str,
+) {
+    let envelope = Envelope::new(
+        Some(from.clone()),
+        vec![to.clone()],
+    ).unwrap();
+
+    let message_id = Uuid::new_v4().to_string();
+    let message = format!(r#"
+From: {}
+To: {}
+Subject: {}
+
+{}
+"#, from, to, subject, body);
 
     let email = SendableEmail::new(
-        Envelope::new(
-            Some(from),
-            vec![to],
-        )
-            .unwrap(),
-        Uuid::new_v4().to_string(),
-        "Hello example".to_string().into_bytes(),
+        envelope,
+        message_id,
+        message.trim().to_string().into_bytes(),
     );
-
-    context.transport.send(email)
+    context.transport.send(email).unwrap();
 }
