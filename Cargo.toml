@@ -12,6 +12,8 @@ serde_json = "1.0"
 chrono = { version = "0.4.19", features = ["serde"] }
 reqwest = { version = "0.11.10", features = ["json"] }
 graphql_client = "0.10.0"
-lettre = "0.9"
-lettre_email = "0.9"
+lettre = "0.9.4"
+lettre_email = "0.9.4"
 futures = { version = "0.3.21" }
+uuid = { version = "1.1.1", features = [ "v4" ] }
+native-tls = "0.2.10"

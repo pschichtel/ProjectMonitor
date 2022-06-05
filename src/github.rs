@@ -82,7 +82,7 @@ pub struct PullRequest {
     pub author: String,
 }
 
-pub struct ClientContext {
+pub struct GithubClientContext {
     pub client: reqwest::Client,
     pub username: String,
     pub access_token: String,
@@ -104,7 +104,7 @@ impl PartialEq for repo_query::SubscriptionState {
 }
 
 async fn run_query<Req, Res>(
-    context: &ClientContext,
+    context: &GithubClientContext,
     request_body: Req,
 ) -> Result<Res, Box<dyn Error>>
     where
@@ -132,7 +132,7 @@ struct Repo {
     name: String,
 }
 
-async fn fetch_viewer_repos(context: &ClientContext) -> Result<Vec<Repo>, Box<dyn Error>> {
+async fn fetch_viewer_repos(context: &GithubClientContext) -> Result<Vec<Repo>, Box<dyn Error>> {
     let mut output: Vec<Repo> = Vec::new();
     let mut cursor: Option<String> = None;
     loop {
@@ -156,7 +156,7 @@ async fn fetch_viewer_repos(context: &ClientContext) -> Result<Vec<Repo>, Box<dy
     Ok(output)
 }
 
-async fn fetch_viewer_organizations(context: &ClientContext) -> Result<Vec<String>, Box<dyn Error>> {
+async fn fetch_viewer_organizations(context: &GithubClientContext) -> Result<Vec<String>, Box<dyn Error>> {
     let mut output: Vec<String> = Vec::new();
     let mut cursor: Option<String> = None;
     loop {
@@ -180,7 +180,7 @@ async fn fetch_viewer_organizations(context: &ClientContext) -> Result<Vec<Strin
     Ok(output)
 }
 
-async fn fetch_orga_repos(context: &ClientContext, login: &str) -> Result<Vec<Repo>, Box<dyn Error>> {
+async fn fetch_orga_repos(context: &GithubClientContext, login: &str) -> Result<Vec<Repo>, Box<dyn Error>> {
     let mut output: Vec<Repo> = Vec::new();
     let mut cursor: Option<String> = None;
     loop {
@@ -205,7 +205,7 @@ async fn fetch_orga_repos(context: &ClientContext, login: &str) -> Result<Vec<Re
     Ok(output)
 }
 
-async fn fetch_all_orga_repos(context: &ClientContext) -> Result<Vec<Repo>, Box<dyn Error>> {
+async fn fetch_all_orga_repos(context: &GithubClientContext) -> Result<Vec<Repo>, Box<dyn Error>> {
     let orgas = &fetch_viewer_organizations(&context).await?;
     let mut futures = Vec::new();
     for orga in orgas {
@@ -218,7 +218,7 @@ async fn fetch_all_orga_repos(context: &ClientContext) -> Result<Vec<Repo>, Box<
     results.map(|nested| nested.into_iter().flatten().collect::<Vec<Repo>>())
 }
 
-async fn fetch_all_repos(context: &ClientContext) -> Result<Vec<Repo>, Box<dyn Error>> {
+async fn fetch_all_repos(context: &GithubClientContext) -> Result<Vec<Repo>, Box<dyn Error>> {
     let (viewer_repos, orga_repos) =
         try_join!(fetch_viewer_repos(&context), fetch_all_orga_repos(&context))?;
 
@@ -229,7 +229,7 @@ async fn fetch_all_repos(context: &ClientContext) -> Result<Vec<Repo>, Box<dyn E
     Ok(repos)
 }
 
-async fn fetch_project(context: &ClientContext, owner: &str, name: &str) -> Result<Project, Box<dyn Error>> {
+async fn fetch_project(context: &GithubClientContext, owner: &str, name: &str) -> Result<Project, Box<dyn Error>> {
     let mut tasks: Vec<Task> = Vec::new();
     let mut issue_cursor: Option<String> = None;
     let mut pull_request_cursor: Option<String> = None;
@@ -282,7 +282,7 @@ async fn fetch_project(context: &ClientContext, owner: &str, name: &str) -> Resu
     Ok(project)
 }
 
-pub async fn fetch_all_projects(context: &ClientContext) -> Result<Vec<Project>, Box<dyn Error>> {
+pub async fn fetch_all_projects(context: &GithubClientContext) -> Result<Vec<Project>, Box<dyn Error>> {
     let repos = &fetch_all_repos(context).await?;
     let mut futures = Vec::new();
     for repo in repos {
