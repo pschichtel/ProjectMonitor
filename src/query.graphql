@@ -75,6 +75,7 @@ query RepoQuery($owner: String!, $name: String!, $issue_cursor: String, $pullReq
             edges {
                 node {
                     __typename
+                    number,
                     title
                     createdAt
                     url
@@ -95,6 +96,7 @@ query RepoQuery($owner: String!, $name: String!, $issue_cursor: String, $pullReq
             edges {
                 node {
                     __typename
+                    number,
                     title
                     createdAt
                     url

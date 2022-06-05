@@ -68,6 +68,7 @@ impl Task {
 
 #[derive(Debug)]
 pub struct Issue {
+    pub id: i64,
     pub title: String,
     pub created_at: DateTime,
     pub url: URI,
@@ -76,6 +77,7 @@ pub struct Issue {
 
 #[derive(Debug)]
 pub struct PullRequest {
+    pub id: i64,
     pub title: String,
     pub created_at: DateTime,
     pub url: URI,
@@ -248,7 +250,7 @@ async fn fetch_project(context: &GithubClientContext, owner: &str, name: &str) -
             .flatten()
             .map(|edge| edge.node.unwrap())
             .filter(|issue| issue.viewer_subscription.as_ref() != Some(&repo_query::SubscriptionState::SUBSCRIBED))
-            .map(|issue| Issue { author: issue.author.map(|a| a.login).unwrap_or("<deleted user>".to_string()), url: issue.url, title: issue.title, created_at: issue.created_at })
+            .map(|issue| Issue { id: issue.number, author: issue.author.map(|a| a.login).unwrap_or("<deleted user>".to_string()), url: issue.url, title: issue.title, created_at: issue.created_at })
             .filter(|issue| issue.author != context.username)
             .map(|issue| Task::Issue(issue));
 
@@ -259,7 +261,7 @@ async fn fetch_project(context: &GithubClientContext, owner: &str, name: &str) -
             .flatten()
             .map(|edge| edge.node.unwrap())
             .filter(|pr| pr.viewer_subscription.as_ref() != Some(&repo_query::SubscriptionState::SUBSCRIBED))
-            .map(|pr| PullRequest { author: pr.author.map(|a| a.login).unwrap_or("<deleted user>".to_string()), url: pr.url, title: pr.title, created_at: pr.created_at })
+            .map(|pr| PullRequest { id: pr.number, author: pr.author.map(|a| a.login).unwrap_or("<deleted user>".to_string()), url: pr.url, title: pr.title, created_at: pr.created_at })
             .filter(|pr| pr.author != context.username)
             .map(|pr| Task::Pr(pr));
 
