@@ -45,7 +45,7 @@ pub struct OrganizationReposQuery;
 )]
 pub struct RepoQuery;
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Project {
     name: String,
     owner: String,
@@ -53,7 +53,7 @@ pub struct Project {
     tasks: Vec<Task>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum Task {
     Issue(Issue),
     Pr(PullRequest),
@@ -68,7 +68,7 @@ impl Task {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Issue {
     title: String,
     created_at: DateTime,
@@ -76,7 +76,7 @@ pub struct Issue {
     author: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct PullRequest {
     title: String,
     created_at: DateTime,
@@ -278,7 +278,7 @@ async fn fetch_project(context: &ClientContext, owner: &str, name: &str) -> Resu
         url: repo.url,
         name: name.to_string(),
         owner: owner.to_string(),
-        tasks: tasks,
+        tasks,
     };
 
     Ok(project)
@@ -306,7 +306,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     };
     let mut projects = fetch_all_projects(&context).await?;
     projects.sort_by_key(|project| {
-        Reverse(project.clone().tasks.into_iter().map(|i| i.created_at()).max())
+        Reverse(project.tasks.as_slice().into_iter().map(|i| i.created_at()).max())
     });
 
     for project in &mut projects {
