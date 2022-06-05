@@ -76,10 +76,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
         for issue in project.tasks.as_slice() {
             match issue {
                 Task::Issue(issue) => {
-                    email_body.push_str(format!("  Issue:        {} by {} ({}) -> {}\n", issue.title, issue.author, issue.created_at, issue.url).as_str());
+                    email_body.push_str(format!("  Issue:        {} by @{} ({}) -> {}\n", issue.title, issue.author, issue.created_at, issue.url).as_str());
                 }
                 Task::Pr(pull_request) => {
-                    email_body.push_str(format!("  Pull Request: {} by {} ({}) -> {}\n", pull_request.title, pull_request.author, pull_request.created_at, pull_request.url).as_str());
+                    email_body.push_str(format!("  Pull Request: {} by @{} ({}) -> {}\n", pull_request.title, pull_request.author, pull_request.created_at, pull_request.url).as_str());
                 }
             }
         }
