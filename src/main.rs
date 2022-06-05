@@ -43,18 +43,41 @@ pub struct OrganizationReposQuery;
     query_path = "src/query.graphql",
     response_derives = "Debug",
 )]
-pub struct RepoIssuesQuery;
+pub struct RepoQuery;
 
 #[derive(Debug, Clone)]
 pub struct Project {
     name: String,
     owner: String,
     url: URI,
-    issues: Vec<Issue>,
+    tasks: Vec<Task>,
+}
+
+#[derive(Debug, Clone)]
+pub enum Task {
+    Issue(Issue),
+    Pr(PullRequest),
+}
+
+impl Task {
+    fn created_at(&self) -> chrono::DateTime<Utc> {
+        match self {
+            Task::Issue(issue) => issue.created_at,
+            Task::Pr(pr) => pr.created_at,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
 pub struct Issue {
+    title: String,
+    created_at: DateTime,
+    url: URI,
+    author: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct PullRequest {
     title: String,
     created_at: DateTime,
     url: URI,
@@ -67,12 +90,12 @@ struct ClientContext {
     access_token: String,
 }
 
-impl PartialEq for repo_issues_query::SubscriptionState {
+impl PartialEq for repo_query::SubscriptionState {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
-            (&repo_issues_query::SubscriptionState::SUBSCRIBED, &repo_issues_query::SubscriptionState::SUBSCRIBED) => true,
-            (&repo_issues_query::SubscriptionState::UNSUBSCRIBED, &repo_issues_query::SubscriptionState::UNSUBSCRIBED) => true,
-            (&repo_issues_query::SubscriptionState::IGNORED, &repo_issues_query::SubscriptionState::IGNORED) => true,
+            (&repo_query::SubscriptionState::SUBSCRIBED, &repo_query::SubscriptionState::SUBSCRIBED) => true,
+            (&repo_query::SubscriptionState::UNSUBSCRIBED, &repo_query::SubscriptionState::UNSUBSCRIBED) => true,
+            (&repo_query::SubscriptionState::IGNORED, &repo_query::SubscriptionState::IGNORED) => true,
             _ => false,
         }
     }
@@ -209,35 +232,53 @@ async fn fetch_all_repos(context: &ClientContext) -> Result<Vec<Repo>, Box<dyn E
 }
 
 async fn fetch_project(context: &ClientContext, owner: &str, name: &str) -> Result<Project, Box<dyn Error>> {
-    let mut issues: Vec<Issue> = Vec::new();
-    let mut cursor: Option<String> = None;
+    let mut tasks: Vec<Task> = Vec::new();
+    let mut issue_cursor: Option<String> = None;
+    let mut pull_request_cursor: Option<String> = None;
     let mut repo;
     loop {
-        let variables = repo_issues_query::Variables { owner: owner.to_string(), name: name.to_string(), cursor: cursor.as_ref().map(|a| a.clone()) };
-        let result = run_query::<_, repo_issues_query::ResponseData>(context, RepoIssuesQuery::build_query(variables)).await?;
+        let variables = repo_query::Variables {
+            owner: owner.to_string(),
+            name: name.to_string(),
+            issue_cursor: issue_cursor.as_ref().map(|a| a.clone()),
+            pull_request_cursor: pull_request_cursor.as_ref().map(|a| a.clone()),
+        };
+        let result = run_query::<_, repo_query::ResponseData>(context, RepoQuery::build_query(variables)).await?;
         repo = result.repository.unwrap();
-        let values = repo.issues.edges.unwrap()
+        let issues = repo.issues.edges.unwrap()
             .into_iter()
             .flatten()
             .map(|edge| edge.node.unwrap())
-            .filter(|issue| issue.viewer_subscription.as_ref() != Some(&repo_issues_query::SubscriptionState::SUBSCRIBED))
+            .filter(|issue| issue.viewer_subscription.as_ref() != Some(&repo_query::SubscriptionState::SUBSCRIBED))
             .map(|issue| Issue { author: issue.author.map(|a| a.login).unwrap_or("<deleted user>".to_string()), url: issue.url, title: issue.title, created_at: issue.created_at })
-            .filter(|issue| issue.author != context.username);
+            .filter(|issue| issue.author != context.username)
+            .map(|issue| Task::Issue(issue));
 
-        issues.extend(values);
+        tasks.extend(issues);
 
-        let page_info = repo.issues.page_info;
-        cursor = page_info.end_cursor;
-        if !page_info.has_next_page {
+        let pull_requests = repo.pull_requests.edges.unwrap()
+            .into_iter()
+            .flatten()
+            .map(|edge| edge.node.unwrap())
+            .filter(|pr| pr.viewer_subscription.as_ref() != Some(&repo_query::SubscriptionState::SUBSCRIBED))
+            .map(|pr| PullRequest { author: pr.author.map(|a| a.login).unwrap_or("<deleted user>".to_string()), url: pr.url, title: pr.title, created_at: pr.created_at })
+            .filter(|pr| pr.author != context.username)
+            .map(|pr| Task::Pr(pr));
+
+        tasks.extend(pull_requests);
+
+        issue_cursor = repo.issues.page_info.end_cursor;
+        pull_request_cursor = repo.pull_requests.page_info.end_cursor;
+        if !repo.issues.page_info.has_next_page || repo.pull_requests.page_info.has_next_page {
             break;
         }
     }
-    issues.sort_by_key(|issue| Reverse(issue.created_at));
+    tasks.sort_by_key(|task| Reverse(task.created_at()));
     let project = Project {
         url: repo.url,
         name: name.to_string(),
         owner: owner.to_string(),
-        issues,
+        tasks: tasks,
     };
 
     Ok(project)
@@ -265,20 +306,24 @@ async fn main() -> Result<(), Box<dyn Error>> {
     };
     let mut projects = fetch_all_projects(&context).await?;
     projects.sort_by_key(|project| {
-        Reverse(project.clone().issues.into_iter().map(|i| i.created_at).max())
+        Reverse(project.clone().tasks.into_iter().map(|i| i.created_at()).max())
     });
 
     for project in &mut projects {
-        if project.issues.is_empty() {
+        if project.tasks.is_empty() {
             continue;
         }
-        project.issues.sort_by_key(|issue| Reverse(issue.created_at));
 
         println!("Project: {}/{} ({})", project.owner, project.name, project.url);
 
-        for issue in project.issues.as_slice() {
-            if issue.author != github_username {
-                println!("  Issue: {} by {} ({}) -> {}", issue.title, issue.author, issue.created_at, issue.url);
+        for issue in project.tasks.as_slice() {
+            match issue {
+                Task::Issue(issue) => {
+                    println!("  Issue: {} by {} ({}) -> {}", issue.title, issue.author, issue.created_at, issue.url);
+                }
+                Task::Pr(pull_request) => {
+                    println!("  Pull Request: {} by {} ({}) -> {}", pull_request.title, pull_request.author, pull_request.created_at, pull_request.url);
+                }
             }
         }
     }
