@@ -7,6 +7,7 @@ use std::error::Error;
 use std::fs;
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Seek, SeekFrom};
+use std::process::exit;
 use lettre::EmailAddress;
 use github::{GithubClientContext, Task};
 use crate::email::{create_email_client, EmailContext, send_email, TransportSecurity};
@@ -40,8 +41,18 @@ fn read_secret(name: &str) -> Option<String> {
     None
 }
 
-async fn check_and_notify_new_issues(github_context: &GithubClientContext, email_context: &mut EmailContext, persistence_path: &str) {
-    let mut file = File::options().read(true).write(true).create(true).open(persistence_path).unwrap();
+fn read_required_secret(name: &str) -> String {
+    match read_secret(name) {
+        Some(value) => value,
+        None => {
+            println!("Failed to read required secret {}!", name);
+            exit(1);
+        },
+    }
+}
+
+async fn check_and_notify_new_issues(github_context: &GithubClientContext, email_context: &mut EmailContext, persistence_path: &str) -> Result<(), Box<dyn Error>> {
+    let mut file = File::options().read(true).write(true).create(true).open(persistence_path)?;
 
     let known_tasks = match serde_json::from_reader::<_, Vec<Project>>(BufReader::new(&file)) {
         Ok(data) => data
@@ -51,7 +62,7 @@ async fn check_and_notify_new_issues(github_context: &GithubClientContext, email
         Err(_) => HashSet::new(),
     };
 
-    let mut projects = github::fetch_all_projects(&github_context).await.unwrap();
+    let mut projects = github::fetch_all_projects(&github_context).await?;
 
     for project in &mut projects {
         project.tasks.retain(|task| !known_tasks.contains(task.url().as_str()));
@@ -65,7 +76,7 @@ async fn check_and_notify_new_issues(github_context: &GithubClientContext, email
 
     if projects.is_empty() {
         println!("No new unsubscribed issues!");
-        return;
+        return Ok(());
     }
 
     let mut email_body = String::new();
@@ -84,8 +95,8 @@ async fn check_and_notify_new_issues(github_context: &GithubClientContext, email
         }
     }
 
-    file.seek(SeekFrom::Start(0)).unwrap();
-    serde_json::to_writer(BufWriter::new(file), &projects).unwrap();
+    file.seek(SeekFrom::Start(0))?;
+    serde_json::to_writer(BufWriter::new(file), &projects)?;
 
     println!("{}", email_body);
 
@@ -93,13 +104,57 @@ async fn check_and_notify_new_issues(github_context: &GithubClientContext, email
         email_context,
         "GitHub: New Unsubscribed Tasks",
         email_body.as_str(),
-    );
+    )?;
+
+    return Ok(());
+}
+
+fn get_env(name: &str) -> String {
+    match std::env::var(name) {
+        Ok(value) => value,
+        Err(_) => {
+            println!("Failed to read env var {}!", name);
+            exit(1);
+        }
+    }
+}
+
+fn email_address_from_env(name: &str) -> EmailAddress {
+    let value = get_env(name);
+    match EmailAddress::new(value.clone()) {
+        Ok(addr) => addr,
+        Err(err) => {
+            println!("Failed to parse email address from {} of var {}: {}", value, name, err);
+            exit(1);
+        }
+    }
+}
+
+fn delay_from_env(name: &str) -> u64 {
+    let value = get_env(name);
+    match u64::from_str_radix(value.as_str(), 10) {
+        Ok(delay) => delay,
+        Err(err) => {
+            println!("Failed to parse {} of var {} as delay value: {}", value, name, err);
+            exit(1);
+        }
+    }
+}
+
+fn bool_from_env(name: &str, default: bool) -> bool {
+    match std::env::var(name) {
+        Ok(value) => value.to_lowercase().trim() == "true",
+        Err(_) => {
+            return default;
+        },
+    }
 }
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn Error>> {
-    let github_username = read_secret("github_username").unwrap();
-    let github_access_token = read_secret("github_access_token").unwrap();
+async fn main() {
+    let github_username = read_required_secret("github_username");
+    let github_access_token = read_required_secret("github_access_token");
+
     let client = reqwest::Client::new();
     let github_context = GithubClientContext {
         client,
@@ -107,28 +162,33 @@ async fn main() -> Result<(), Box<dyn Error>> {
         access_token: github_access_token.to_string()
     };
 
-    let smtp_host = std::env::var("SMTP_HOST")?;
+    let smtp_host = get_env("SMTP_HOST");
     let smtp_port = std::env::var("SMTP_PORT")
         .map(|port| u16::from_str_radix(port.as_str(), 10).unwrap())
         .unwrap_or(587);
     let smtp_username = read_secret("smtp_username");
     let smtp_password = read_secret("smtp_password");
-    let smtp_security = match std::env::var("SMTP_STARTTLS") {
-        Ok(value) => if value.to_lowercase().trim() == "true" { StartTls } else { TransportSecurity::None }
-        Err(_) => { TransportSecurity::None }
+    let smtp_security = if bool_from_env("SMTP_STARTTLS", false) {
+        StartTls
+    } else {
+        TransportSecurity::None
     };
-    let email_from = EmailAddress::new(std::env::var("EMAIL_FROM")?)?;
-    let email_to = EmailAddress::new(std::env::var("EMAIL_TO")?)?;
+    let email_from = email_address_from_env("EMAIL_FROM");
+    let email_to = email_address_from_env("EMAIL_TO");
     let mut email_context = create_email_client(smtp_host.as_str(), smtp_port, smtp_username, smtp_password, smtp_security, email_from, email_to);
 
     let persistence_path = std::env::var("PERSISTENCE_FILE")
         .unwrap_or("persistence.json".to_string());
 
-    let delay = std::env::var("DELAY")
-        .map(|value| u64::from_str_radix(value.as_str(), 10).unwrap())?;
+    let delay = delay_from_env("DELAY");
 
     loop {
-        check_and_notify_new_issues(&github_context, &mut email_context, persistence_path.as_str()).await;
+        match check_and_notify_new_issues(&github_context, &mut email_context, persistence_path.as_str()).await {
+            Ok(_) => {}
+            Err(err) => {
+                println!("Failed to check for new tasks: {}", err);
+            }
+        };
         async_std::task::sleep(Duration::from_secs(delay)).await;
     }
 }
