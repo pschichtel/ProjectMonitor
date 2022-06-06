@@ -65,7 +65,7 @@ pub fn send_email(
 ) -> SmtpResult {
     let envelope = Envelope::new(
         Some(context.from_address.clone()),
-        vec![context.from_address.clone()],
+        vec![context.to_address.clone()],
     ).unwrap();
 
     let message_id = Uuid::new_v4().to_string();

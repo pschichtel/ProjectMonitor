@@ -184,7 +184,9 @@ async fn main() {
 
     loop {
         match check_and_notify_new_issues(&github_context, &mut email_context, persistence_path.as_str()).await {
-            Ok(_) => {}
+            Ok(_) => {
+                println!("Waiting for next check...")
+            }
             Err(err) => {
                 println!("Failed to check for new tasks: {}", err);
             }
