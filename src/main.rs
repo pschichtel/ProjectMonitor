@@ -95,9 +95,6 @@ async fn check_and_notify_new_issues(github_context: &GithubClientContext, email
         }
     }
 
-    file.seek(SeekFrom::Start(0))?;
-    serde_json::to_writer(BufWriter::new(file), &projects)?;
-
     println!("{}", email_body);
 
     send_email(
@@ -105,6 +102,9 @@ async fn check_and_notify_new_issues(github_context: &GithubClientContext, email
         "GitHub: New Unsubscribed Tasks",
         email_body.as_str(),
     )?;
+
+    file.seek(SeekFrom::Start(0))?;
+    serde_json::to_writer(BufWriter::new(file), &projects)?;
 
     return Ok(());
 }
