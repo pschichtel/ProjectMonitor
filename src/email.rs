@@ -74,6 +74,9 @@ From: {}
 To: {}
 Subject: {}
 
+No tasks have been found in your projects, that you are not yet subscribed to.
+Check the following list.
+
 {}
 "#, context.from_address, context.to_address, subject, body);
 
