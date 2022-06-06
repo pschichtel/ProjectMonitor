@@ -124,8 +124,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let persistence_path = std::env::var("PERSISTENCE_FILE")
         .unwrap_or("persistence.json".to_string());
 
+    let delay = std::env::var("DELAY")
+        .map(|value| u64::from_str_radix(value.as_str(), 10).unwrap())?;
+
     loop {
         check_and_notify_new_issues(&github_context, &mut email_context, persistence_path.as_str()).await;
-        async_std::task::sleep(Duration::from_secs(60 * 60u64)).await;
+        async_std::task::sleep(Duration::from_secs(delay)).await;
     }
 }
