@@ -6,7 +6,7 @@ use std::collections::HashSet;
 use std::error::Error;
 use std::fs;
 use std::fs::File;
-use std::io::{BufReader, BufWriter};
+use std::io::{BufReader, BufWriter, Seek, SeekFrom};
 use lettre::EmailAddress;
 use github::{GithubClientContext, Task};
 use crate::email::{create_email_client, EmailContext, send_email, TransportSecurity};
@@ -41,24 +41,24 @@ fn read_secret(name: &str) -> Option<String> {
 }
 
 async fn check_and_notify_new_issues(github_context: &GithubClientContext, email_context: &mut EmailContext, persistence_path: &str) {
-    let file = File::options().read(true).write(true).create(true).open(persistence_path).unwrap();
+    let mut file = File::options().read(true).write(true).create(true).open(persistence_path).unwrap();
 
-    // TODO actually use this to remove previously seen tasks
-    let previously_known_projects = if file.metadata().unwrap().len() > 0 {
-        serde_json::from_reader::<_, Vec<Project>>(BufReader::new(&file))
-            .unwrap()
+    let known_tasks = match serde_json::from_reader::<_, Vec<Project>>(BufReader::new(&file)) {
+        Ok(data) => data
             .into_iter()
-            .flat_map(|project| project.tasks.into_iter().map(move |task| (task.url())))
-            .collect::<HashSet<_>>()
-    } else {
-        HashSet::new()
+            .flat_map(|project| project.tasks.into_iter().map(move |task| task.url()))
+            .collect::<HashSet<_>>(),
+        Err(_) => HashSet::new(),
     };
 
-    let mut projects = github::fetch_all_projects(&github_context).await
-        .unwrap()
-        .into_iter()
-        .filter(|project| !project.tasks.is_empty())
-        .collect::<Vec<_>>();
+    let mut projects = github::fetch_all_projects(&github_context).await.unwrap();
+
+    for project in &mut projects {
+        project.tasks.retain(|task| !known_tasks.contains(task.url().as_str()));
+    }
+
+    projects.retain(|project| !project.tasks.is_empty());
+
     projects.sort_by_key(|project| {
         Reverse(project.tasks.as_slice().into_iter().map(|i| i.created_at()).max())
     });
@@ -84,6 +84,7 @@ async fn check_and_notify_new_issues(github_context: &GithubClientContext, email
         }
     }
 
+    file.seek(SeekFrom::Start(0)).unwrap();
     serde_json::to_writer(BufWriter::new(file), &projects).unwrap();
 
     println!("{}", email_body);
