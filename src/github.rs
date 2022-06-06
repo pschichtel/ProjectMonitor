@@ -231,11 +231,32 @@ async fn fetch_all_repos(context: &GithubClientContext) -> Result<Vec<Repo>, Box
     Ok(repos)
 }
 
+trait Authored {
+    fn get_author_name(&self) -> Option<String>;
+
+    fn get_author_name_or_default(&self) -> String {
+        self.get_author_name().unwrap_or("<deleted user>".to_string())
+    }
+}
+
+impl Authored for repo_query::RepoQueryRepositoryIssuesEdgesNode {
+    fn get_author_name(&self) -> Option<String> {
+        self.author.as_ref().map(|author| author.login.clone())
+    }
+}
+
+impl Authored for repo_query::RepoQueryRepositoryPullRequestsEdgesNode {
+    fn get_author_name(&self) -> Option<String> {
+        self.author.as_ref().map(|author| author.login.clone())
+    }
+}
+
 async fn fetch_project(context: &GithubClientContext, owner: &str, name: &str) -> Result<Project, Box<dyn Error>> {
     let mut tasks: Vec<Task> = Vec::new();
     let mut issue_cursor: Option<String> = None;
     let mut pull_request_cursor: Option<String> = None;
     let mut repo;
+
     loop {
         let variables = repo_query::Variables {
             owner: owner.to_string(),
@@ -250,7 +271,7 @@ async fn fetch_project(context: &GithubClientContext, owner: &str, name: &str) -
             .flatten()
             .map(|edge| edge.node.unwrap())
             .filter(|issue| issue.viewer_subscription.as_ref() != Some(&repo_query::SubscriptionState::SUBSCRIBED))
-            .map(|issue| Issue { id: issue.number, author: issue.author.map(|a| a.login).unwrap_or("<deleted user>".to_string()), url: issue.url, title: issue.title, created_at: issue.created_at })
+            .map(|issue| Issue { id: issue.number, author: issue.get_author_name_or_default(), url: issue.url, title: issue.title, created_at: issue.created_at })
             .filter(|issue| issue.author != context.username)
             .map(|issue| Task::Issue(issue));
 
@@ -261,7 +282,7 @@ async fn fetch_project(context: &GithubClientContext, owner: &str, name: &str) -
             .flatten()
             .map(|edge| edge.node.unwrap())
             .filter(|pr| pr.viewer_subscription.as_ref() != Some(&repo_query::SubscriptionState::SUBSCRIBED))
-            .map(|pr| PullRequest { id: pr.number, author: pr.author.map(|a| a.login).unwrap_or("<deleted user>".to_string()), url: pr.url, title: pr.title, created_at: pr.created_at })
+            .map(|pr| PullRequest { id: pr.number, author: pr.get_author_name_or_default(), url: pr.url, title: pr.title, created_at: pr.created_at })
             .filter(|pr| pr.author != context.username)
             .map(|pr| Task::Pr(pr));
 

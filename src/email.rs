@@ -8,6 +8,8 @@ use uuid::Uuid;
 
 pub struct EmailContext {
     transport: SmtpTransport,
+    from_address: EmailAddress,
+    to_address: EmailAddress,
 }
 
 pub enum TransportSecurity {
@@ -15,7 +17,15 @@ pub enum TransportSecurity {
     StartTls,
 }
 
-pub fn create_email_client(host: &str, port: u16, username: Option<String>, password: Option<String>, security: TransportSecurity) -> EmailContext {
+pub fn create_email_client(
+    host: &str,
+    port: u16,
+    username: Option<String>,
+    password: Option<String>,
+    security: TransportSecurity,
+    from_address: EmailAddress,
+    to_address: EmailAddress,
+) -> EmailContext {
     let client_security = match security {
         TransportSecurity::None => ClientSecurity::None,
         TransportSecurity::StartTls => {
@@ -41,20 +51,20 @@ pub fn create_email_client(host: &str, port: u16, username: Option<String>, pass
     };
 
     EmailContext {
-        transport
+        transport,
+        from_address,
+        to_address,
     }
 }
 
 pub fn send_email(
     context: &mut EmailContext,
-    from: EmailAddress,
-    to: EmailAddress,
     subject: &str,
     body: &str,
 ) {
     let envelope = Envelope::new(
-        Some(from.clone()),
-        vec![to.clone()],
+        Some(context.from_address.clone()),
+        vec![context.from_address.clone()],
     ).unwrap();
 
     let message_id = Uuid::new_v4().to_string();
@@ -64,7 +74,7 @@ To: {}
 Subject: {}
 
 {}
-"#, from, to, subject, body);
+"#, context.from_address, context.to_address, subject, body);
 
     let email = SendableEmail::new(
         envelope,

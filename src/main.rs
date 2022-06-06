@@ -5,7 +5,7 @@ use std::error::Error;
 use std::fs;
 use lettre::EmailAddress;
 use github::{GithubClientContext, Task};
-use crate::email::{create_email_client, send_email, TransportSecurity};
+use crate::email::{create_email_client, EmailContext, send_email, TransportSecurity};
 use crate::email::TransportSecurity::StartTls;
 
 mod github;
@@ -35,6 +35,46 @@ fn read_secret(name: &str) -> Option<String> {
     None
 }
 
+async fn check_and_notify_new_issues(github_context: &GithubClientContext, email_context: &mut EmailContext) {
+    let mut projects = github::fetch_all_projects(&github_context).await
+        .unwrap()
+        .into_iter()
+        .filter(|project| !project.tasks.is_empty())
+        .collect::<Vec<_>>();
+    projects.sort_by_key(|project| {
+        Reverse(project.tasks.as_slice().into_iter().map(|i| i.created_at()).max())
+    });
+
+    if projects.is_empty() {
+        println!("No new unsubscribed issues!");
+        return;
+    }
+
+    let mut email_body = String::new();
+    for project in projects {
+        email_body.push_str(format!("Project: {}/{} ({})\n", project.owner, project.name, project.url).as_str());
+
+        for issue in project.tasks.as_slice() {
+            match issue {
+                Task::Issue(issue) => {
+                    email_body.push_str(format!("  Issue:        #{} {} by @{} ({}) -> {}\n", issue.id, issue.title, issue.author, issue.created_at, issue.url).as_str());
+                }
+                Task::Pr(pull_request) => {
+                    email_body.push_str(format!("  Pull Request: #{} {} by @{} ({}) -> {}\n", pull_request.id, pull_request.title, pull_request.author, pull_request.created_at, pull_request.url).as_str());
+                }
+            }
+        }
+    }
+
+    println!("{}", email_body);
+
+    send_email(
+        email_context,
+        "GitHub: New Unsubscribed Tasks",
+        email_body.as_str(),
+    );
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     let github_username = read_secret("github_username").unwrap();
@@ -56,44 +96,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
         Ok(value) => if value.to_lowercase().trim() == "true" { StartTls } else { TransportSecurity::None }
         Err(_) => { TransportSecurity::None }
     };
-    let mut email_context = create_email_client(smtp_host.as_str(), smtp_port, smtp_username, smtp_password, smtp_security);
     let email_from = EmailAddress::new(std::env::var("EMAIL_FROM")?)?;
     let email_to = EmailAddress::new(std::env::var("EMAIL_TO")?)?;
+    let mut email_context = create_email_client(smtp_host.as_str(), smtp_port, smtp_username, smtp_password, smtp_security, email_from, email_to);
 
-
-    let mut projects = github::fetch_all_projects(&github_context).await?
-        .into_iter()
-        .filter(|project| !project.tasks.is_empty())
-        .collect::<Vec<_>>();
-    projects.sort_by_key(|project| {
-        Reverse(project.tasks.as_slice().into_iter().map(|i| i.created_at()).max())
-    });
-
-    let mut email_body = String::new();
-    for project in projects {
-        email_body.push_str(format!("Project: {}/{} ({})\n", project.owner, project.name, project.url).as_str());
-
-        for issue in project.tasks.as_slice() {
-            match issue {
-                Task::Issue(issue) => {
-                    email_body.push_str(format!("  Issue:        #{} {} by @{} ({}) -> {}\n", issue.id, issue.title, issue.author, issue.created_at, issue.url).as_str());
-                }
-                Task::Pr(pull_request) => {
-                    email_body.push_str(format!("  Pull Request: #{} {} by @{} ({}) -> {}\n", pull_request.id, pull_request.title, pull_request.author, pull_request.created_at, pull_request.url).as_str());
-                }
-            }
-        }
-    }
-
-    println!("{}", email_body);
-
-    send_email(
-        &mut email_context,
-        email_from,
-        email_to,
-        "GitHub: New Unsubscribed Tasks",
-        email_body.as_str(),
-    );
+    check_and_notify_new_issues(&github_context, &mut email_context).await;
 
     Ok(())
 }
