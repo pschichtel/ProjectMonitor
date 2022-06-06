@@ -1,12 +1,17 @@
 extern crate core;
 
+use core::time::Duration;
 use std::cmp::Reverse;
+use std::collections::HashSet;
 use std::error::Error;
 use std::fs;
+use std::fs::File;
+use std::io::{BufReader, BufWriter};
 use lettre::EmailAddress;
 use github::{GithubClientContext, Task};
 use crate::email::{create_email_client, EmailContext, send_email, TransportSecurity};
 use crate::email::TransportSecurity::StartTls;
+use crate::github::Project;
 
 mod github;
 mod email;
@@ -35,7 +40,20 @@ fn read_secret(name: &str) -> Option<String> {
     None
 }
 
-async fn check_and_notify_new_issues(github_context: &GithubClientContext, email_context: &mut EmailContext) {
+async fn check_and_notify_new_issues(github_context: &GithubClientContext, email_context: &mut EmailContext, persistence_path: &str) {
+    let file = File::options().read(true).write(true).create(true).open(persistence_path).unwrap();
+
+    // TODO actually use this to remove previously seen tasks
+    let previously_known_projects = if file.metadata().unwrap().len() > 0 {
+        serde_json::from_reader::<_, Vec<Project>>(BufReader::new(&file))
+            .unwrap()
+            .into_iter()
+            .flat_map(|project| project.tasks.into_iter().map(move |task| (task.url())))
+            .collect::<HashSet<_>>()
+    } else {
+        HashSet::new()
+    };
+
     let mut projects = github::fetch_all_projects(&github_context).await
         .unwrap()
         .into_iter()
@@ -51,7 +69,7 @@ async fn check_and_notify_new_issues(github_context: &GithubClientContext, email
     }
 
     let mut email_body = String::new();
-    for project in projects {
+    for project in &projects {
         email_body.push_str(format!("Project: {}/{} ({})\n", project.owner, project.name, project.url).as_str());
 
         for issue in project.tasks.as_slice() {
@@ -65,6 +83,8 @@ async fn check_and_notify_new_issues(github_context: &GithubClientContext, email
             }
         }
     }
+
+    serde_json::to_writer(BufWriter::new(file), &projects).unwrap();
 
     println!("{}", email_body);
 
@@ -100,7 +120,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let email_to = EmailAddress::new(std::env::var("EMAIL_TO")?)?;
     let mut email_context = create_email_client(smtp_host.as_str(), smtp_port, smtp_username, smtp_password, smtp_security, email_from, email_to);
 
-    check_and_notify_new_issues(&github_context, &mut email_context).await;
+    let persistence_path = std::env::var("PERSISTENCE_FILE")
+        .unwrap_or("persistence.json".to_string());
 
-    Ok(())
+    loop {
+        check_and_notify_new_issues(&github_context, &mut email_context, persistence_path.as_str()).await;
+        async_std::task::sleep(Duration::from_secs(60 * 60u64)).await;
+    }
 }

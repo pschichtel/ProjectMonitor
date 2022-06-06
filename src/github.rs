@@ -1,7 +1,7 @@
 use std::error::Error;
 use chrono::Utc;
 use std::cmp::Reverse;
-use serde::Serialize;
+use serde::{Serialize, Deserialize};
 use serde::de::DeserializeOwned;
 use std::fmt::Debug;
 use graphql_client::{GraphQLQuery, Response};
@@ -43,7 +43,7 @@ pub struct OrganizationReposQuery;
 )]
 pub struct RepoQuery;
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Project {
     pub name: String,
     pub owner: String,
@@ -51,13 +51,20 @@ pub struct Project {
     pub tasks: Vec<Task>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub enum Task {
     Issue(Issue),
     Pr(PullRequest),
 }
 
 impl Task {
+    pub fn url(&self) -> URI {
+        match self {
+            Task::Issue(issue) => issue.url.clone(),
+            Task::Pr(pr) => pr.url.clone(),
+        }
+    }
+
     pub fn created_at(&self) -> chrono::DateTime<Utc> {
         match self {
             Task::Issue(issue) => issue.created_at,
@@ -66,7 +73,7 @@ impl Task {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Issue {
     pub id: i64,
     pub title: String,
@@ -75,7 +82,7 @@ pub struct Issue {
     pub author: String,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct PullRequest {
     pub id: i64,
     pub title: String,
