@@ -7,14 +7,8 @@ RUN export PATH=$PATH:/root/.cargo/bin \
  && cargo install cargo-chef
 
 RUN mkdir /build
-WORKDIR /build
-COPY Cargo.lock .
-COPY Cargo.toml .
 
-RUN source /root/.cargo/env \
- && mkdir src \
- && echo "fn main() {}" > src/main.rs \
- && cargo build --release
+WORKDIR /build
 
 COPY . .
 
