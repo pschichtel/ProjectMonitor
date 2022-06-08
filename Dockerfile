@@ -15,10 +15,9 @@ COPY . .
 RUN source /root/.cargo/env \
  && cargo build --release
 
-FROM alpine:3.16
+FROM scratch
 
-RUN apk add --update --no-cache ca-certificates
-
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 COPY --from=builder /build/target/release/project_monitor /usr/local/bin/project-monitor
 
 ENTRYPOINT [ "/usr/local/bin/project-monitor" ]
