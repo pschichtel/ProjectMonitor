@@ -16,6 +16,7 @@ use crate::github::Project;
 
 mod github;
 mod email;
+mod error;
 
 fn read_secret(name: &str) -> Option<String> {
     let direct_env_name = name.to_uppercase();

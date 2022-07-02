@@ -7,6 +7,7 @@ use std::fmt::Debug;
 use graphql_client::{GraphQLQuery, Response};
 use futures::future::join_all;
 use tokio::try_join;
+use crate::error::QueryError;
 
 type URI = String;
 type DateTime = chrono::DateTime<Utc>;
@@ -127,12 +128,19 @@ async fn run_query<Req, Res>(
     let response = req
         .send()
         .await?;
+    let status = response.status();
+    if !status.is_success() {
+        return Err(Box::new(QueryError::HttpError(status.as_u16())));
+    }
     let bytes = response.bytes().await?;
     let body: Response<Res> = serde_json::from_slice(&bytes)?;
 
-    // println!("body={:?}", body);
-
-    Ok(body.data.unwrap())
+    match body.data {
+        Some(data) => Ok(data),
+        None => {
+            Err(Box::new(QueryError::NoData))
+        }
+    }
 }
 
 #[derive(Debug)]
