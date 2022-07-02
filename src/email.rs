@@ -1,6 +1,7 @@
 extern crate lettre;
 extern crate lettre_email;
 
+use std::error::Error;
 use lettre::{ClientSecurity, ClientTlsParameters, EmailAddress, Envelope, SendableEmail, SmtpClient, SmtpTransport, Transport};
 use lettre::smtp::authentication::Credentials;
 use lettre::smtp::error::SmtpResult;
@@ -26,19 +27,19 @@ pub fn create_email_client(
     security: TransportSecurity,
     from_address: EmailAddress,
     to_address: EmailAddress,
-) -> EmailContext {
+) -> Result<EmailContext, Box<dyn Error>> {
     let client_security = match security {
         TransportSecurity::None => ClientSecurity::None,
         TransportSecurity::StartTls => {
             let tls_client_parameters = ClientTlsParameters {
                 domain: host.to_string(),
-                connector: TlsConnector::new().unwrap(),
+                connector: TlsConnector::new()?,
             };
             ClientSecurity::Required(tls_client_parameters)
         },
     };
 
-    let client = SmtpClient::new((host, port), client_security).unwrap();
+    let client = SmtpClient::new((host, port), client_security)?;
     let transport = match (username, password) {
         (Some(user), Some(pass)) => {
             let credentials = Credentials::new(user, pass);
@@ -51,11 +52,13 @@ pub fn create_email_client(
         }
     };
 
-    EmailContext {
+    let context = EmailContext {
         transport,
         from_address,
         to_address,
-    }
+    };
+
+    Ok(context)
 }
 
 pub fn send_email(
@@ -66,7 +69,7 @@ pub fn send_email(
     let envelope = Envelope::new(
         Some(context.from_address.clone()),
         vec![context.to_address.clone()],
-    ).unwrap();
+    ).expect("failed to create envelope!");
 
     let message_id = Uuid::new_v4().to_string();
     let message = format!(r#"

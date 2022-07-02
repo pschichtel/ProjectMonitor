@@ -163,10 +163,11 @@ async fn main() {
         access_token: github_access_token.to_string()
     };
 
+    let smtp_submission_port = 587;
     let smtp_host = get_env("SMTP_HOST");
     let smtp_port = std::env::var("SMTP_PORT")
-        .map(|port| u16::from_str_radix(port.as_str(), 10).unwrap())
-        .unwrap_or(587);
+        .map(|port| u16::from_str_radix(port.as_str(), 10).unwrap_or(smtp_submission_port))
+        .unwrap_or(smtp_submission_port);
     let smtp_username = read_secret("smtp_username");
     let smtp_password = read_secret("smtp_password");
     let smtp_security = if bool_from_env("SMTP_STARTTLS", false) {
@@ -176,7 +177,8 @@ async fn main() {
     };
     let email_from = email_address_from_env("EMAIL_FROM");
     let email_to = email_address_from_env("EMAIL_TO");
-    let mut email_context = create_email_client(smtp_host.as_str(), smtp_port, smtp_username, smtp_password, smtp_security, email_from, email_to);
+    let mut email_context = create_email_client(smtp_host.as_str(), smtp_port, smtp_username, smtp_password, smtp_security, email_from, email_to)
+        .expect("failed to setup email client");
 
     let persistence_path = std::env::var("PERSISTENCE_FILE")
         .unwrap_or("persistence.json".to_string());

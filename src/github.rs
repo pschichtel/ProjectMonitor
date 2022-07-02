@@ -155,10 +155,11 @@ async fn fetch_viewer_repos(context: &GithubClientContext) -> Result<Vec<Repo>, 
     loop {
         let variables = viewer_repos_query::Variables { cursor: cursor.as_ref().map(|a| a.clone()) };
         let result = run_query::<_, viewer_repos_query::ResponseData>(context, ViewerReposQuery::build_query(variables)).await?;
-        let values = result.viewer.repositories.edges.unwrap()
+        let values = result.viewer.repositories.edges
             .into_iter()
             .flatten()
-            .map(|edge| edge.node.unwrap())
+            .flatten()
+            .flat_map(|edge| edge.node)
             .filter(|repo| !repo.is_archived)
             .map(|repo| Repo { owner: repo.owner.login, name: repo.name });
 
@@ -179,10 +180,11 @@ async fn fetch_viewer_organizations(context: &GithubClientContext) -> Result<Vec
     loop {
         let variables = viewer_organizations_query::Variables { cursor: cursor.as_ref().map(|a| a.clone()) };
         let result = run_query::<_, viewer_organizations_query::ResponseData>(context, ViewerOrganizationsQuery::build_query(variables)).await?;
-        let values = result.viewer.organizations.edges.unwrap()
+        let values = result.viewer.organizations.edges
             .into_iter()
             .flatten()
-            .map(|edge| edge.node.unwrap())
+            .flatten()
+            .flat_map(|edge| edge.node)
             .filter(|orga| orga.viewer_can_administer)
             .map(|orga| orga.login);
 
@@ -203,11 +205,12 @@ async fn fetch_orga_repos(context: &GithubClientContext, login: &str) -> Result<
     loop {
         let variables = organization_repos_query::Variables { login: login.to_string(), cursor: cursor.as_ref().map(|a| a.clone()) };
         let result = run_query::<_, organization_repos_query::ResponseData>(context, OrganizationReposQuery::build_query(variables)).await?;
-        let orga_repos = result.organization.unwrap().repositories;
-        let values = orga_repos.edges.unwrap()
+        let orga_repos = result.organization.ok_or("no organization")?.repositories;
+        let values = orga_repos.edges
             .into_iter()
             .flatten()
-            .map(|edge| edge.node.unwrap())
+            .flatten()
+            .flat_map(|edge| edge.node)
             .filter(|repo| !repo.is_archived)
             .map(|repo| Repo { owner: repo.owner.login, name: repo.name });
 
@@ -280,11 +283,12 @@ async fn fetch_project(context: &GithubClientContext, owner: &str, name: &str) -
             pull_request_cursor: pull_request_cursor.as_ref().map(|a| a.clone()),
         };
         let result = run_query::<_, repo_query::ResponseData>(context, RepoQuery::build_query(variables)).await?;
-        repo = result.repository.unwrap();
-        let issues = repo.issues.edges.unwrap()
+        repo = result.repository.ok_or("no repository")?;
+        let issues = repo.issues.edges
             .into_iter()
             .flatten()
-            .map(|edge| edge.node.unwrap())
+            .flatten()
+            .flat_map(|edge| edge.node)
             .filter(|issue| issue.viewer_subscription.as_ref() != Some(&repo_query::SubscriptionState::SUBSCRIBED))
             .map(|issue| Issue { id: issue.number, author: issue.get_author_name_or_default(), url: issue.url, title: issue.title, created_at: issue.created_at })
             .filter(|issue| issue.author != context.username)
@@ -292,10 +296,11 @@ async fn fetch_project(context: &GithubClientContext, owner: &str, name: &str) -
 
         tasks.extend(issues);
 
-        let pull_requests = repo.pull_requests.edges.unwrap()
+        let pull_requests = repo.pull_requests.edges
             .into_iter()
             .flatten()
-            .map(|edge| edge.node.unwrap())
+            .flatten()
+            .flat_map(|edge| edge.node)
             .filter(|pr| pr.viewer_subscription.as_ref() != Some(&repo_query::SubscriptionState::SUBSCRIBED))
             .map(|pr| PullRequest { id: pr.number, author: pr.get_author_name_or_default(), url: pr.url, title: pr.title, created_at: pr.created_at })
             .filter(|pr| pr.author != context.username)
