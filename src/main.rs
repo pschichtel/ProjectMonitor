@@ -8,7 +8,10 @@ use std::fs;
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Seek, SeekFrom};
 use std::process::exit;
-use lettre::EmailAddress;
+use lettre::Address;
+use lettre::transport::smtp::SUBMISSION_PORT;
+use tokio::signal::ctrl_c;
+use tokio::task;
 use github::{GithubClientContext, Task};
 use crate::email::{create_email_client, EmailContext, send_email, TransportSecurity};
 use crate::email::TransportSecurity::StartTls;
@@ -120,14 +123,14 @@ fn get_env(name: &str) -> String {
     }
 }
 
-fn email_address_from_env(name: &str) -> EmailAddress {
+fn email_address_from_env(name: &str) -> Address {
     let value = get_env(name);
-    match EmailAddress::new(value.clone()) {
+    match value.parse::<Address>() {
         Ok(addr) => addr,
         Err(err) => {
             println!("Failed to parse email address from {} of var {}: {}", value, name, err);
             exit(1);
-        }
+        },
     }
 }
 
@@ -163,11 +166,10 @@ async fn main() {
         access_token: github_access_token.to_string()
     };
 
-    let smtp_submission_port = 587;
     let smtp_host = get_env("SMTP_HOST");
     let smtp_port = std::env::var("SMTP_PORT")
-        .map(|port| u16::from_str_radix(port.as_str(), 10).unwrap_or(smtp_submission_port))
-        .unwrap_or(smtp_submission_port);
+        .map(|port| u16::from_str_radix(port.as_str(), 10).unwrap_or(SUBMISSION_PORT))
+        .unwrap_or(SUBMISSION_PORT);
     let smtp_username = read_secret("smtp_username");
     let smtp_password = read_secret("smtp_password");
     let smtp_security = if bool_from_env("SMTP_STARTTLS", false) {
@@ -184,6 +186,12 @@ async fn main() {
         .unwrap_or("persistence.json".to_string());
 
     let delay = delay_from_env("DELAY");
+
+    task::spawn(async {
+        ctrl_c().await.unwrap_or(());
+        println!("Received SIGINT, exiting cleanly...");
+        exit(0);
+    });
 
     loop {
         match check_and_notify_new_issues(&github_context, &mut email_context, persistence_path.as_str()).await {
