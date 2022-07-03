@@ -73,15 +73,11 @@ pub fn send_email(
     ).expect("failed to create envelope!");
 
     let message = format!(r#"
-From: {}
-To: {}
-Subject: {}
-
-No tasks have been found in your projects, that you are not yet subscribed to.
+Tasks have been found in your projects, that you are not yet subscribed to.
 Check the following list.
 
 {}
-"#, context.from_address, context.to_address, subject, body);
+"#, body);
 
     let message = MessageBuilder::new()
         .message_id(None)
