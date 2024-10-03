@@ -56,7 +56,7 @@ fn read_required_secret(name: &str) -> String {
 }
 
 async fn check_and_notify_new_issues(github_context: &GithubClientContext, email_context: &mut EmailContext, persistence_path: &str) -> Result<(), Box<dyn Error>> {
-    let mut file = File::options().read(true).write(true).create(true).truncate(true).open(persistence_path)?;
+    let mut file = File::options().read(true).write(true).create(true).open(persistence_path)?;
 
     let known_tasks = match serde_json::from_reader::<_, Vec<Project>>(BufReader::new(&file)) {
         Ok(data) => data
@@ -108,7 +108,8 @@ async fn check_and_notify_new_issues(github_context: &GithubClientContext, email
     )?;
 
     file.seek(SeekFrom::Start(0))?;
-    serde_json::to_writer(BufWriter::new(file), &projects)?;
+    serde_json::to_writer(BufWriter::new(&file), &projects)?;
+    file.set_len(file.stream_position()?)?;
 
     return Ok(());
 }
