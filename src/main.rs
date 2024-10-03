@@ -202,6 +202,6 @@ async fn main() {
                 println!("Failed to check for new tasks: {}", err);
             }
         };
-        async_std::task::sleep(Duration::from_secs(delay)).await;
+        tokio::time::sleep(Duration::from_secs(delay)).await;
     }
 }

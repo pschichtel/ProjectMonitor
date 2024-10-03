@@ -18,4 +18,3 @@ reqwest = { version = "0.12.8", features = ["json", "rustls-tls", "gzip", "brotl
 graphql_client = "0.14.0"
 lettre = { version = "0.11.9", features = ["tokio1-rustls-tls", "smtp-transport", "builder"], default-features = false }
 futures = "0.3.30"
-async-std = "1.13.0"
