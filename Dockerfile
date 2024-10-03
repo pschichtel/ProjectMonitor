@@ -1,4 +1,4 @@
-FROM alpine:3.18 as builder
+FROM alpine:3.20 as builder
 
 RUN apk add --update --no-cache rustup openssl openssl-dev openssl-libs-static alpine-sdk
 RUN echo 1 | rustup-init --no-modify-path
