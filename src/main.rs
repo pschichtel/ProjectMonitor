@@ -1,21 +1,21 @@
 extern crate core;
 
+use crate::email::TransportSecurity::StartTls;
+use crate::email::{create_email_client, send_email, EmailContext, TransportSecurity};
+use crate::github::Project;
 use core::time::Duration;
+use github::{GithubClientContext, Task};
+use lettre::transport::smtp::SUBMISSION_PORT;
+use lettre::Address;
 use std::cmp::Reverse;
 use std::collections::HashSet;
 use std::error::Error;
 use std::fs;
 use std::fs::File;
-use std::io::{BufReader, BufWriter, Seek, SeekFrom};
+use std::io::{BufReader, BufWriter, ErrorKind};
 use std::process::exit;
-use lettre::Address;
-use lettre::transport::smtp::SUBMISSION_PORT;
 use tokio::signal::ctrl_c;
 use tokio::task;
-use github::{GithubClientContext, Task};
-use crate::email::{create_email_client, EmailContext, send_email, TransportSecurity};
-use crate::email::TransportSecurity::StartTls;
-use crate::github::Project;
 
 mod github;
 mod email;
@@ -55,16 +55,45 @@ fn read_required_secret(name: &str) -> String {
     }
 }
 
-async fn check_and_notify_new_issues(github_context: &GithubClientContext, email_context: &mut EmailContext, persistence_path: &str) -> Result<(), Box<dyn Error>> {
-    let mut file = File::options().read(true).write(true).create(true).open(persistence_path)?;
+fn read_known_tasks(persistence_path: &str) -> Result<Vec<Project>, Box<dyn Error>> {
+    let file = File::options()
+        .read(true)
+        .open(persistence_path);
 
-    let known_tasks = match serde_json::from_reader::<_, Vec<Project>>(BufReader::new(&file)) {
-        Ok(data) => data
-            .into_iter()
-            .flat_map(|project| project.tasks.into_iter().map(move |task| task.url()))
-            .collect::<HashSet<_>>(),
-        Err(_) => HashSet::new(),
+    match file {
+        Ok(file) => match serde_json::from_reader::<_, Vec<Project>>(BufReader::new(&file)) {
+            Ok(data) => return Ok(data),
+            Err(e) => {
+                eprintln!("Failed to parse known tasks: {}", e);
+            },
+        }
+        Err(e) => {
+            if e.kind() != ErrorKind::NotFound {
+                eprintln!("Failed to read known tasks: {}", e);
+            }
+        }
     };
+
+    Ok(Vec::new())
+}
+
+fn write_known_tasks(persistence_path: &str, projects: &Vec<Project>) -> Result<(), Box<dyn Error>> {
+    let file = File::options()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(persistence_path)?;
+
+    serde_json::to_writer(BufWriter::new(file), &projects)?;
+
+    Ok(())
+}
+
+async fn check_and_notify_new_issues(github_context: &GithubClientContext, email_context: &mut EmailContext, persistence_path: &str) -> Result<(), Box<dyn Error>> {
+    let known_tasks = read_known_tasks(&persistence_path)?
+        .into_iter()
+        .flat_map(|project| project.tasks.into_iter().map(move |task| task.url()))
+        .collect::<HashSet<_>>();
 
     let mut projects = github::fetch_all_projects(&github_context).await?;
 
@@ -107,11 +136,8 @@ async fn check_and_notify_new_issues(github_context: &GithubClientContext, email
         email_body.as_str(),
     )?;
 
-    file.seek(SeekFrom::Start(0))?;
-    serde_json::to_writer(BufWriter::new(&file), &projects)?;
-    file.set_len(file.stream_position()?)?;
-
-    return Ok(());
+    write_known_tasks(&persistence_path, &projects)?;
+    Ok(())
 }
 
 fn get_env(name: &str) -> String {
