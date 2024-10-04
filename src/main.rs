@@ -124,6 +124,9 @@ async fn check_and_notify_new_issues(github_context: &GithubClientContext, email
                 Task::Pr(pull_request) => {
                     email_body.push_str(format!("  Pull Request: #{} {} by @{} ({}) -> {}\n", pull_request.id, pull_request.title, pull_request.author, pull_request.created_at, pull_request.url).as_str());
                 }
+                Task::Discussion(discussion) => {
+                    email_body.push_str(format!("  Discussion:   #{} {} by @{} ({}) -> {}\n", discussion.id, discussion.title, discussion.author, discussion.created_at, discussion.url).as_str());
+                }
             }
         }
     }

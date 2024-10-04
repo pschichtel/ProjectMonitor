@@ -56,6 +56,7 @@ pub struct Project {
 pub enum Task {
     Issue(Issue),
     Pr(PullRequest),
+    Discussion(Discussion),
 }
 
 impl Task {
@@ -63,6 +64,7 @@ impl Task {
         match self {
             Task::Issue(issue) => issue.url.clone(),
             Task::Pr(pr) => pr.url.clone(),
+            Task::Discussion(discussion) => discussion.url.clone(),
         }
     }
 
@@ -70,6 +72,7 @@ impl Task {
         match self {
             Task::Issue(issue) => issue.created_at,
             Task::Pr(pr) => pr.created_at,
+            Task::Discussion(discussion) => discussion.created_at,
         }
     }
 }
@@ -85,6 +88,15 @@ pub struct Issue {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PullRequest {
+    pub id: i64,
+    pub title: String,
+    pub created_at: DateTime,
+    pub url: URI,
+    pub author: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Discussion {
     pub id: i64,
     pub title: String,
     pub created_at: DateTime,
@@ -269,10 +281,17 @@ impl Authored for repo_query::RepoQueryRepositoryPullRequestsEdgesNode {
     }
 }
 
+impl Authored for repo_query::RepoQueryRepositoryDiscussionsEdgesNode {
+    fn get_author_name(&self) -> Option<String> {
+        self.author.as_ref().map(|author| author.login.clone())
+    }
+}
+
 async fn fetch_project(context: &GithubClientContext, owner: &str, name: &str) -> Result<Project, Box<dyn Error>> {
     let mut tasks: Vec<Task> = Vec::new();
     let mut issue_cursor: Option<String> = None;
     let mut pull_request_cursor: Option<String> = None;
+    let mut discussion_cursor: Option<String> = None;
     let mut repo;
 
     loop {
@@ -281,6 +300,7 @@ async fn fetch_project(context: &GithubClientContext, owner: &str, name: &str) -
             name: name.to_string(),
             issue_cursor: issue_cursor.as_ref().map(|a| a.clone()),
             pull_request_cursor: pull_request_cursor.as_ref().map(|a| a.clone()),
+            discussion_cursor: discussion_cursor.as_ref().map(|a| a.clone()),
         };
         let result = run_query::<_, repo_query::ResponseData>(context, RepoQuery::build_query(variables)).await?;
         repo = result.repository.ok_or("no repository")?;
@@ -308,9 +328,22 @@ async fn fetch_project(context: &GithubClientContext, owner: &str, name: &str) -
 
         tasks.extend(pull_requests);
 
+        let discussions = repo.discussions.edges
+            .into_iter()
+            .flatten()
+            .flatten()
+            .flat_map(|edge| edge.node)
+            .filter(|discussion| discussion.viewer_subscription.as_ref() != Some(&repo_query::SubscriptionState::SUBSCRIBED))
+            .map(|discussion| Discussion { id: discussion.number, author: discussion.get_author_name_or_default(), url: discussion.url, title: discussion.title, created_at: discussion.created_at })
+            .filter(|discussion| discussion.author != context.username)
+            .map(|discussion| Task::Discussion(discussion));
+
+        tasks.extend(discussions);
+
         issue_cursor = repo.issues.page_info.end_cursor;
         pull_request_cursor = repo.pull_requests.page_info.end_cursor;
-        if !repo.issues.page_info.has_next_page || repo.pull_requests.page_info.has_next_page {
+        discussion_cursor = repo.discussions.page_info.end_cursor;
+        if !repo.issues.page_info.has_next_page || repo.pull_requests.page_info.has_next_page || repo.discussions.page_info.has_next_page {
             break;
         }
     }

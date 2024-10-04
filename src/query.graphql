@@ -67,7 +67,7 @@ query OrganizationReposQuery($login: String!, $cursor: String) {
     }
 }
 
-query RepoQuery($owner: String!, $name: String!, $issue_cursor: String, $pullRequestCursor: String) {
+query RepoQuery($owner: String!, $name: String!, $issue_cursor: String, $pull_request_cursor: String, $discussion_cursor: String) {
     repository(name: $name, owner: $owner, followRenames: false) {
         __typename
         url
@@ -92,7 +92,28 @@ query RepoQuery($owner: String!, $name: String!, $issue_cursor: String, $pullReq
                 endCursor
             }
         }
-        pullRequests(first: 100, after: $pullRequestCursor, states: OPEN) {
+        pullRequests(first: 100, after: $pull_request_cursor, states: OPEN) {
+            edges {
+                node {
+                    __typename
+                    number,
+                    title
+                    createdAt
+                    url
+                    author {
+                        __typename
+                        login
+                    }
+                    viewerSubscription
+                }
+            }
+            pageInfo {
+                __typename
+                hasNextPage
+                endCursor
+            }
+        }
+        discussions(first: 100, after: $discussion_cursor, states: OPEN) {
             edges {
                 node {
                     __typename
