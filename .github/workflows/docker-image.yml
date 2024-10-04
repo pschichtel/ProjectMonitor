@@ -15,6 +15,9 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Build the Docker image
         run: |
+          if [ "$GITHUB_EVENT_NAME" == "pull_request" ]; then
+            GITHUB_SHA=$(cat $GITHUB_EVENT_PATH | jq -r .pull_request.head.sha)
+          fi
           image_name="ghcr.io/pschichtel/project-monitor:1-alpine"
-          podman build -t "$image_name" .
+          podman build --build-arg BUILD_HASH="$GITHUB_SHA" -t "$image_name" .
           podman push "$image_name"

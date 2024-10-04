@@ -186,6 +186,13 @@ fn bool_from_env(name: &str, default: bool) -> bool {
 
 #[tokio::main]
 async fn main() {
+    let build_hash = option_env!("BUILD_HASH");
+    if let Some(hash) = build_hash {
+        if hash != "" && hash != "unknown" {
+            println!("Built from: https://github.com/pschichtel/ProjectMonitor/commit/{}", hash);
+        }
+    }
+
     let github_username = read_required_secret("github_username");
     let github_access_token = read_required_secret("github_access_token");
 

@@ -9,6 +9,8 @@ WORKDIR /build
 
 COPY . .
 
+ARG BUILD_HASH="unknown"
+
 RUN source /root/.cargo/env \
  && cargo build --release
 
