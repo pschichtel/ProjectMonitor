@@ -91,8 +91,8 @@ fn write_known_tasks(persistence_path: &str, projects: &Vec<Project>) -> Result<
 
 async fn check_and_notify_new_issues(github_context: &GithubClientContext, email_context: &mut EmailContext, persistence_path: &str) -> Result<(), Box<dyn Error>> {
     let known_tasks = read_known_tasks(&persistence_path)?
-        .into_iter()
-        .flat_map(|project| project.tasks.into_iter().map(move |task| task.url()))
+        .iter()
+        .flat_map(|project| project.tasks.iter().map(|task| task.url()))
         .collect::<HashSet<_>>();
 
     let mut projects = github::fetch_all_projects(&github_context).await?;
