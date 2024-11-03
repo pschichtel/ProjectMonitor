@@ -4,7 +4,8 @@ use std::error::Error as StdError;
 use lettre::{Address, SmtpTransport, Transport};
 use lettre::transport::smtp::authentication::Credentials;
 use lettre::address::Envelope;
-use lettre::message::{Mailbox, MessageBuilder};
+use lettre::message::{Mailbox, MessageBuilder, SinglePart};
+use lettre::message::header::ContentType;
 use lettre::transport::smtp::client::{Tls, TlsParametersBuilder};
 use lettre::transport::smtp::Error;
 use lettre::transport::smtp::response::Response;
@@ -79,13 +80,17 @@ Check the following list.
 {}
 "#, body);
 
+    let body_part = SinglePart::builder()
+        .content_type(ContentType::TEXT_PLAIN)
+        .body(message.trim().to_string());
+
     let message = MessageBuilder::new()
         .message_id(None)
         .subject(subject)
         .envelope(envelope)
         .from(Mailbox::new(None, context.from_address.to_owned()))
         .to(Mailbox::new(None, context.to_address.to_owned()))
-        .body(message.trim().to_string().into_bytes())
+        .singlepart(body_part)
         .unwrap();
 
     context.transport.send(&message)
