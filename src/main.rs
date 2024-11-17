@@ -178,9 +178,7 @@ fn delay_from_env(name: &str) -> u64 {
 fn bool_from_env(name: &str, default: bool) -> bool {
     match std::env::var(name) {
         Ok(value) => value.to_lowercase().trim() == "true",
-        Err(_) => {
-            return default;
-        },
+        Err(_) => default,
     }
 }
 
