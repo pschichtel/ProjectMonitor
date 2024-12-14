@@ -13,7 +13,7 @@ lto = true
 tokio = { version = "1.42.0", features = ["full"] }
 serde = { version = "1.0.215", features = ["derive"] }
 serde_json = "1.0.133"
-chrono = { version = "0.4.38", features = ["serde"] }
+chrono = { version = "0.4.39", features = ["serde"] }
 reqwest = { version = "0.12.9", features = ["json", "rustls-tls", "gzip", "brotli", "deflate"], default-features = false }
 graphql_client = "0.14.0"
 lettre = { version = "0.11.11", features = ["tokio1-rustls-tls", "smtp-transport", "builder"], default-features = false }
