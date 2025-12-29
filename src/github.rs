@@ -53,32 +53,9 @@ pub struct Project {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub enum Task {
-    Issue(Issue),
-    Pr(PullRequest),
-    Discussion(Discussion),
-}
-
-impl Task {
-    pub fn url(&self) -> URI {
-        match self {
-            Task::Issue(issue) => issue.url.clone(),
-            Task::Pr(pr) => pr.url.clone(),
-            Task::Discussion(discussion) => discussion.url.clone(),
-        }
-    }
-
-    pub fn created_at(&self) -> chrono::DateTime<Utc> {
-        match self {
-            Task::Issue(issue) => issue.created_at,
-            Task::Pr(pr) => pr.created_at,
-            Task::Discussion(discussion) => discussion.created_at,
-        }
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct Issue {
+pub struct Task {
+    pub observed_at: chrono::DateTime<Utc>,
+    pub task_type: TaskType,
     pub id: i64,
     pub title: String,
     pub created_at: DateTime,
@@ -87,21 +64,11 @@ pub struct Issue {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct PullRequest {
-    pub id: i64,
-    pub title: String,
-    pub created_at: DateTime,
-    pub url: URI,
-    pub author: String,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct Discussion {
-    pub id: i64,
-    pub title: String,
-    pub created_at: DateTime,
-    pub url: URI,
-    pub author: String,
+#[serde(rename_all = "snake_case")]
+pub enum TaskType {
+    Issue,
+    Pr,
+    Discussion,
 }
 
 pub struct GithubClientContext {
@@ -287,6 +254,19 @@ impl Authored for repo_query::RepoQueryRepositoryDiscussionsEdgesNode {
     }
 }
 
+macro_rules! fetch_tasks {
+    ($context:expr, $repo:expr, $field:ident, $type:ident) => {
+        $repo.$field.edges
+            .into_iter()
+            .flatten()
+            .flatten()
+            .flat_map(|edge| edge.node)
+            .filter(|subject| subject.viewer_subscription.as_ref() != Some(&repo_query::SubscriptionState::SUBSCRIBED))
+            .map(|subject| Task { observed_at: Utc::now(), task_type: TaskType::$type, id: subject.number, author: subject.get_author_name_or_default(), url: subject.url, title: subject.title, created_at: subject.created_at })
+            .filter(|subject| subject.author != $context.username)
+    };
+}
+
 async fn fetch_project(context: &GithubClientContext, owner: &str, name: &str) -> Result<Project, Box<dyn Error>> {
     let mut tasks: Vec<Task> = Vec::new();
     let mut issue_cursor: Option<String> = None;
@@ -304,41 +284,10 @@ async fn fetch_project(context: &GithubClientContext, owner: &str, name: &str) -
         };
         let result = run_query::<_, repo_query::ResponseData>(context, RepoQuery::build_query(variables)).await?;
         repo = result.repository.ok_or("no repository")?;
-        let issues = repo.issues.edges
-            .into_iter()
-            .flatten()
-            .flatten()
-            .flat_map(|edge| edge.node)
-            .filter(|issue| issue.viewer_subscription.as_ref() != Some(&repo_query::SubscriptionState::SUBSCRIBED))
-            .map(|issue| Issue { id: issue.number, author: issue.get_author_name_or_default(), url: issue.url, title: issue.title, created_at: issue.created_at })
-            .filter(|issue| issue.author != context.username)
-            .map(|issue| Task::Issue(issue));
 
-        tasks.extend(issues);
-
-        let pull_requests = repo.pull_requests.edges
-            .into_iter()
-            .flatten()
-            .flatten()
-            .flat_map(|edge| edge.node)
-            .filter(|pr| pr.viewer_subscription.as_ref() != Some(&repo_query::SubscriptionState::SUBSCRIBED))
-            .map(|pr| PullRequest { id: pr.number, author: pr.get_author_name_or_default(), url: pr.url, title: pr.title, created_at: pr.created_at })
-            .filter(|pr| pr.author != context.username)
-            .map(|pr| Task::Pr(pr));
-
-        tasks.extend(pull_requests);
-
-        let discussions = repo.discussions.edges
-            .into_iter()
-            .flatten()
-            .flatten()
-            .flat_map(|edge| edge.node)
-            .filter(|discussion| discussion.viewer_subscription.as_ref() != Some(&repo_query::SubscriptionState::SUBSCRIBED))
-            .map(|discussion| Discussion { id: discussion.number, author: discussion.get_author_name_or_default(), url: discussion.url, title: discussion.title, created_at: discussion.created_at })
-            .filter(|discussion| discussion.author != context.username)
-            .map(|discussion| Task::Discussion(discussion));
-
-        tasks.extend(discussions);
+        tasks.extend(fetch_tasks!(context, repo, issues, Issue));
+        tasks.extend(fetch_tasks!(context, repo, pull_requests, Pr));
+        tasks.extend(fetch_tasks!(context, repo, discussions, Discussion));
 
         issue_cursor = repo.issues.page_info.end_cursor;
         pull_request_cursor = repo.pull_requests.page_info.end_cursor;
@@ -347,7 +296,7 @@ async fn fetch_project(context: &GithubClientContext, owner: &str, name: &str) -
             break;
         }
     }
-    tasks.sort_by_key(|task| Reverse(task.created_at()));
+    tasks.sort_by_key(|task| Reverse(task.created_at));
     let project = Project {
         url: repo.url,
         name: name.to_string(),
