@@ -12,7 +12,7 @@ use std::collections::HashSet;
 use std::error::Error;
 use std::fs;
 use std::fs::File;
-use std::io::{BufReader, BufWriter, ErrorKind};
+use std::io::{BufReader, BufWriter};
 use std::process::exit;
 use tokio::signal::unix::{signal, SignalKind};
 use tokio::{select, task};
@@ -55,42 +55,36 @@ fn read_required_secret(name: &str) -> String {
     }
 }
 
-fn read_known_tasks(persistence_path: &str) -> Result<Vec<Project>, Box<dyn Error>> {
-    let file = File::options()
-        .read(true)
-        .open(persistence_path);
-
-    match file {
-        Ok(file) => match serde_json::from_reader::<_, Vec<Project>>(BufReader::new(&file)) {
-            Ok(data) => return Ok(data),
-            Err(e) => {
-                eprintln!("Failed to parse known tasks: {}", e);
-            },
-        }
+fn read_known_tasks(file: &File) -> Result<Vec<Project>, Box<dyn Error>> {
+    let size = file.metadata()?.len();
+    if size == 0 {
+        return Ok(Vec::new());
+    }
+    match serde_json::from_reader::<_, Vec<Project>>(BufReader::new(file)) {
+        Ok(data) => Ok(data),
         Err(e) => {
-            if e.kind() != ErrorKind::NotFound {
-                eprintln!("Failed to read known tasks: {}", e);
-            }
-        }
-    };
-
-    Ok(Vec::new())
+            eprintln!("Failed to parse known tasks: {}", e);
+            Ok(Vec::new())
+        },
+    }
 }
 
-fn write_known_tasks(persistence_path: &str, projects: &Vec<Project>) -> Result<(), Box<dyn Error>> {
-    let file = File::options()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .open(persistence_path)?;
-
+fn write_known_tasks(file: &File, projects: &Vec<Project>) -> Result<(), Box<dyn Error>> {
+    file.set_len(0)?;
     serde_json::to_writer(BufWriter::new(file), &projects)?;
-
     Ok(())
 }
 
 async fn check_and_notify_new_issues(github_context: &GithubClientContext, email_context: &mut EmailContext, persistence_path: &str) -> Result<(), Box<dyn Error>> {
-    let known_tasks = read_known_tasks(&persistence_path)?
+    let file = File::options()
+        .read(true)
+        .write(true)
+        .create(true)
+        .open(persistence_path)?;
+
+    file.lock()?;
+
+    let known_tasks = read_known_tasks(&file)?
         .iter()
         .flat_map(|project| project.tasks.iter().map(|task| task.url()))
         .collect::<HashSet<_>>();
@@ -139,7 +133,9 @@ async fn check_and_notify_new_issues(github_context: &GithubClientContext, email
         email_body.as_str(),
     )?;
 
-    write_known_tasks(&persistence_path, &projects)?;
+    write_known_tasks(&file, &projects)?;
+
+    file.unlock().expect("failed to unlock persistence file!");
     Ok(())
 }
 
