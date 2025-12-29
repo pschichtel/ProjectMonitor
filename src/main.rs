@@ -14,8 +14,8 @@ use std::fs;
 use std::fs::File;
 use std::io::{BufReader, BufWriter, ErrorKind};
 use std::process::exit;
-use tokio::signal::ctrl_c;
-use tokio::task;
+use tokio::signal::unix::{signal, SignalKind};
+use tokio::{select, task};
 
 mod github;
 mod email;
@@ -223,8 +223,17 @@ async fn main() {
     let delay = delay_from_env("DELAY");
 
     task::spawn(async {
-        ctrl_c().await.unwrap_or(());
-        println!("Received SIGINT, exiting cleanly...");
+        let mut sigint = signal(SignalKind::interrupt()).unwrap();
+        let mut sigterm = signal(SignalKind::terminate()).unwrap();
+
+        select! {
+            _ = sigint.recv() => {
+                println!("Received SIGINT, exiting cleanly...");
+            },
+            _ = sigterm.recv() => {
+                println!("Received SIGTERM, exiting cleanly...");
+            },
+        }
         exit(0);
     });
 
