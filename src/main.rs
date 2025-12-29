@@ -2,13 +2,12 @@ extern crate core;
 
 use crate::email::TransportSecurity::StartTls;
 use crate::email::{create_email_client, send_email, EmailContext, TransportSecurity};
-use crate::github::{Project, TaskType};
+use crate::github::{Project, Task, TaskType};
 use core::time::Duration;
 use github::GithubClientContext;
 use lettre::transport::smtp::SUBMISSION_PORT;
 use lettre::Address;
 use std::cmp::Reverse;
-use std::collections::HashSet;
 use std::error::Error;
 use std::fs;
 use std::fs::File;
@@ -78,7 +77,7 @@ fn write_known_tasks(file: &mut File, projects: &Vec<Project>) -> Result<(), Box
     Ok(())
 }
 
-async fn check_and_notify_new_issues(github_context: &GithubClientContext, email_context: &mut EmailContext, persistence_path: &str) -> Result<(), Box<dyn Error>> {
+async fn check_and_notify_new_issues(github_context: &GithubClientContext, retain_for: Duration, email_context: &mut EmailContext, persistence_path: &str) -> Result<(), Box<dyn Error>> {
     let mut file = File::options()
         .read(true)
         .write(true)
@@ -87,26 +86,81 @@ async fn check_and_notify_new_issues(github_context: &GithubClientContext, email
 
     file.lock()?;
 
-    let known_tasks = read_known_tasks(&mut file)?
-        .iter()
-        .flat_map(|project| project.tasks.iter().map(|task| task.url.clone()))
-        .collect::<HashSet<_>>();
-
-    let mut projects = github::fetch_all_projects(&github_context).await?;
-
-    for project in &mut projects {
-        project.tasks.retain(|task| !known_tasks.contains(task.url.as_str()));
+    let known_tasks = read_known_tasks(&mut file)?;
+    let new_tasks = check_and_notify_new_issues_(&github_context, retain_for, email_context, &known_tasks).await?;
+    if known_tasks != new_tasks {
+        write_known_tasks(&mut file, &new_tasks)?;
     }
 
-    projects.retain(|project| !project.tasks.is_empty());
+    file.unlock().expect("failed to unlock persistence file!");
+    Ok(())
+}
 
-    projects.sort_by_key(|project| {
-        Reverse(project.tasks.as_slice().into_iter().map(|i| i.created_at).max())
-    });
+fn retain_tasks<F>(tasks: &mut Vec<Project>, f: F) where F: Fn(&Task) -> bool {
+    for project in tasks.iter_mut() {
+        project.tasks.retain(|t| f(t));
+    }
+    tasks.retain(|project| !project.tasks.is_empty());
+}
 
-    if !projects.is_empty() {
+fn lookup_project<'a, 'b>(tasks: &'a mut Vec<Project>, subject: &'b Project) -> Option<&'a mut Project> {
+    for project in tasks.iter_mut() {
+        if project.url == subject.url {
+            return Some(project);
+        }
+    }
+    None
+}
+
+fn lookup_task<'a, 'b>(project: &'a mut Project, subject: &'b Task) -> Option<&'a mut Task> {
+    for task in project.tasks.iter_mut() {
+        if task.url == subject.url {
+            return Some(task);
+        }
+    }
+    None
+}
+
+fn upsert_task<'a>(tasks: &'a mut Vec<Project>, project: &Project, task: &Task) -> bool {
+    let project = match lookup_project(tasks, project) {
+        Some(project) => project,
+        None => {
+            let mut project_clone = (*project).clone();
+            project_clone.tasks.retain(|t| t.url == task.url);
+            tasks.push(project_clone);
+            return true;
+        }
+    };
+    if lookup_task(project, task).is_none() {
+        project.tasks.push(task.clone());
+        return true;
+    }
+    false
+}
+
+async fn check_and_notify_new_issues_(github_context: &GithubClientContext, retain_for: Duration, email_context: &mut EmailContext, known_tasks: &Vec<Project>) -> Result<Vec<Project>, Box<dyn Error>> {
+    let now = chrono::Utc::now();
+    let mut known_tasks = known_tasks.clone();
+    let all_tasks = github::fetch_all_projects(&github_context).await?;
+    let mut notify_tasks: Vec<Project> = Vec::new();
+
+    retain_tasks(&mut known_tasks, |task| task.observed_at > now - retain_for);
+
+    for project in all_tasks.iter() {
+        for task in project.tasks.iter() {
+            if upsert_task(&mut known_tasks, project, task) {
+                upsert_task(&mut notify_tasks, project, task);
+            }
+        }
+    }
+
+    if !notify_tasks.is_empty() {
+        notify_tasks.sort_by_key(|project| {
+            Reverse(project.tasks.as_slice().into_iter().map(|i| i.created_at).max())
+        });
+
         let mut email_body = String::new();
-        for project in &projects {
+        for project in &notify_tasks {
             email_body.push_str(format!("Project: {}/{} ({})\n", project.owner, project.name, project.url).as_str());
 
             for task in project.tasks.as_slice() {
@@ -130,10 +184,7 @@ async fn check_and_notify_new_issues(github_context: &GithubClientContext, email
         println!("No new unsubscribed issues!");
     }
 
-    write_known_tasks(&mut file, &projects)?;
-
-    file.unlock().expect("failed to unlock persistence file!");
-    Ok(())
+    Ok(known_tasks)
 }
 
 fn get_env(name: &str) -> String {
@@ -231,7 +282,7 @@ async fn main() {
     });
 
     loop {
-        match check_and_notify_new_issues(&github_context, &mut email_context, persistence_path.as_str()).await {
+        match check_and_notify_new_issues(&github_context, Duration::from_hours(24), &mut email_context, persistence_path.as_str()).await {
             Ok(_) => {
                 println!("Waiting for next check...")
             }

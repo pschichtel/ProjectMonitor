@@ -44,7 +44,7 @@ pub struct OrganizationReposQuery;
 )]
 pub struct RepoQuery;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct Project {
     pub name: String,
     pub owner: String,
@@ -52,7 +52,7 @@ pub struct Project {
     pub tasks: Vec<Task>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct Task {
     pub observed_at: chrono::DateTime<Utc>,
     pub task_type: TaskType,
@@ -63,7 +63,7 @@ pub struct Task {
     pub author: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 #[serde(rename_all = "snake_case")]
 pub enum TaskType {
     Issue,
@@ -314,5 +314,12 @@ pub async fn fetch_all_projects(context: &GithubClientContext) -> Result<Vec<Pro
         futures.push(fetch_project(context, repo.owner.as_str(), repo.name.as_str()));
     }
 
-    join_all(futures).await.into_iter().collect()
+    join_all(futures).await.into_iter()
+        .flat_map(|result| {
+            match result {
+                Ok(project) if project.tasks.is_empty() => None,
+                other => Some(other),
+            }
+        })
+        .collect()
 }
