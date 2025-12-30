@@ -103,13 +103,6 @@ async fn find_issues_for_notification(github_context: &GithubClientContext, reta
     Ok(())
 }
 
-fn retain_tasks<F>(tasks: &mut Vec<Project>, f: F) where F: Fn(&Task) -> bool {
-    for project in tasks.iter_mut() {
-        project.tasks.retain(|t| f(t));
-    }
-    tasks.retain(|project| !project.tasks.is_empty());
-}
-
 fn lookup_project<'a, 'b>(tasks: &'a mut Vec<Project>, subject: &'b Project) -> Option<&'a mut Project> {
     for project in tasks.iter_mut() {
         if project.url == subject.url {
@@ -148,10 +141,18 @@ fn upsert_task<'a>(tasks: &'a mut Vec<Project>, project: &Project, task: &Task) 
 async fn check_tasks_against_persistence(github_context: &GithubClientContext, retain_for: Duration, known_tasks: &Vec<Project>) -> Result<ResultingTasks, Box<dyn Error>> {
     let now = chrono::Utc::now();
     let mut known_tasks = known_tasks.clone();
-    let all_tasks = github::fetch_all_projects(&github_context).await?;
+    let mut all_tasks = github::fetch_all_projects(&github_context).await?;
     let mut notify_tasks: Vec<Project> = Vec::new();
 
-    retain_tasks(&mut known_tasks, |task| task.observed_at > now - retain_for);
+    known_tasks.retain_mut(|known_project| {
+        match lookup_project(&mut all_tasks, known_project) {
+            Some(project) => {
+                known_project.tasks.retain(|t| t.observed_at > now - retain_for && lookup_task(project, t).is_some());
+                !project.tasks.is_empty()
+            },
+            None => false,
+        }
+    });
 
     for project in all_tasks.iter() {
         for task in project.tasks.iter() {
