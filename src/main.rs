@@ -13,6 +13,7 @@ use std::fs;
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Seek, SeekFrom};
 use std::process::exit;
+use iso8601::duration;
 use tokio::signal::unix::{signal, SignalKind};
 use tokio::{select, task};
 
@@ -219,20 +220,16 @@ fn email_address_from_env(name: &str) -> Address {
     }
 }
 
-fn delay_from_env(name: &str) -> u64 {
-    let value = get_env(name);
-    match u64::from_str_radix(value.as_str(), 10) {
-        Ok(delay) => delay,
-        Err(err) => {
-            println!("Failed to parse {} of var {} as delay value: {}", value, name, err);
-            exit(1);
-        }
-    }
-}
-
 fn bool_from_env(name: &str, default: bool) -> bool {
     match std::env::var(name) {
         Ok(value) => value.to_lowercase().trim() == "true",
+        Err(_) => default,
+    }
+}
+
+fn duration_from_env(name: &str, default: Duration) -> Duration {
+    match std::env::var(name) {
+        Ok(value) => duration(value.as_str()).expect(format!("{name} expects a ISO8601 duration!").as_str()).into(),
         Err(_) => default,
     }
 }
@@ -275,7 +272,8 @@ async fn main() {
     let persistence_path = std::env::var("PERSISTENCE_FILE")
         .unwrap_or("persistence.json".to_string());
 
-    let delay = delay_from_env("DELAY");
+    let delay = duration_from_env("DELAY", Duration::from_mins(15));
+    let task_retention = duration_from_env("TASK_RETENTION", Duration::from_hours(24));
 
     task::spawn(async {
         let mut sigint = signal(SignalKind::interrupt()).unwrap();
@@ -293,14 +291,14 @@ async fn main() {
     });
 
     loop {
-        match find_issues_for_notification(&github_context, Duration::from_hours(24), &mut email_context, persistence_path.as_str()).await {
+        match find_issues_for_notification(&github_context, task_retention, &mut email_context, persistence_path.as_str()).await {
             Ok(_) => {
-                println!("Waiting for next check...")
+                println!("Waiting {delay:?} for next check...")
             }
             Err(err) => {
                 println!("Failed to check for new tasks: {}", err);
             }
         };
-        tokio::time::sleep(Duration::from_secs(delay)).await;
+        tokio::time::sleep(delay).await;
     }
 }
